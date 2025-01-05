@@ -32,6 +32,7 @@ class ConvBlock(nn.Module):
         self.activation = nn.ReLU()
         self.maxpool = nn.MaxPool2d(kernel_size = 2, stride = 2)
         self.dropout = nn.Dropout2d(p=dropout)
+        self.batch_norm = nn.BatchNorm2d(out_channels) if batch_norm else nn.Identity()
         
         # Q2.2 Initialize batchnorm layer 
         
@@ -40,6 +41,7 @@ class ConvBlock(nn.Module):
     def forward(self, x):
         # input for convolution is [b, c, w, h]
         x = self.conv(x)
+        x = self.batch_norm(x)
         x = self.activation(x)
         x = self.maxpool(x)
         x = self.dropout(x)
@@ -64,11 +66,13 @@ class CNN(nn.Module):
             ConvBlock(channels[2], channels[3], kernel_size=3, padding=1, maxpool=maxpool, batch_norm=batch_norm, dropout=dropout_prob)
         )
         
-        self.flatten = nn.Flatten()
+        #self.flatten = nn.Flatten()
+        self.global_avg_pool = nn.AdaptiveAvgPool2d((1,1))
         
         self.mlp = nn.Sequential(
-            nn.Linear(128 * 6 * 6, 1024),
+            nn.Linear(128, 1024),
             nn.ReLU(),
+            nn.BatchNorm1d(1024) if batch_norm else nn.Identity(),
             nn.Dropout(p=dropout_prob),
             nn.Linear(1024, 512),
             nn.ReLU(),
@@ -84,7 +88,9 @@ class CNN(nn.Module):
     def forward(self, x):
         x = x.reshape(x.shape[0], 3, 48, -1)
         x = self.conv_blocks(x)
-        x = self.flatten(x)
+        x = self.global_avg_pool(x)
+        x = x.view(x.size(0), -1)
+        #x = self.flatten(x)
         x = self.mlp(x)
         # Implement execution of convolutional blocks 
         
