@@ -20,8 +20,13 @@ class BahdanauAttention(nn.Module):
 
     def __init__(self, hidden_size):
         super(BahdanauAttention, self).__init__()
+        self.W_s = nn.Linear(hidden_size,hidden_size, bias=False)
+        self.W_h = nn.Linear(hidden_size,hidden_size, bias=False)
+        self.v = nn.Linear(hidden_size,1, bias=False)
         
-        raise NotImplementedError("Add your implementation.")
+        self.W_out = nn.Linear(2*hidden_size,hidden_size, bias=False)
+        self.inf_value = float('-inf')
+        #raise NotImplementedError("Add your implementation.")
 
     def forward(self, query, encoder_outputs, src_lengths):
         """
@@ -31,6 +36,29 @@ class BahdanauAttention(nn.Module):
         Returns:
             attn_out:   (batch_size, max_tgt_len, hidden_size) - attended vector
         """
+        
+        Ws_query = self.W_s(query)
+        Wh_enc = self.W_h(encoder_outputs)
+        
+        Ws_query = Ws_query.unsqueeze(2)
+        Wh_enc = Wh_enc.unsqueeze(1)
+        
+        energies = self.v(torch.tanh(Ws_query + Wh_enc))
+        
+        energies = energies.squeeze(-1)
+        
+        mask = self.sequence_mask(src_lengths)
+        mask = mask.unsqueeze(1)
+        
+        energies = energies.masked_fill(~mask, self.inf_value)
+        
+        attn_weights = torch.softmax (energies, dim=-1)
+        
+        context = torch.bmm(attn_weights, encoder_outputs)
+        
+        combined = torch.cat((context,query), dim=-1)
+        attn_out = torch.tanh(self.W_out(combined))
+        return attn_out
 
         raise NotImplementedError("Add your implementation.")
 
@@ -87,8 +115,12 @@ class Encoder(nn.Module):
         # - Use torch.nn.utils.rnn.pad_packed_sequence to unpack the packed sequences
         #   (after passing them to the LSTM)
         #############################################
-        
-
+        embeddings = self.dropout(self.embedding(src))
+        packed_embeddings = pack(embeddings, lengths, batch_first=True, enforce_sorted=False)
+        packed_output, (hidden, cell) = self.lstm(packed_embeddings)
+        output, _ = unpack(packed_output, batch_first=True)
+        output = self.dropout(output)
+        return output, (hidden, cell)
         #############################################
         # END OF YOUR CODE
         #############################################
@@ -158,8 +190,12 @@ class Decoder(nn.Module):
         #         src_lengths,
         #     )
         #############################################
-        
-
+        embeddings = self.dropout(self.embedding(tgt))
+        output, dec_state = self.lstm(embeddings, dec_state)
+        if self.attn is not None:
+            output = self.attn(output,encoder_outputs,src_lengths)
+        output = self.dropout(output)
+        return output, dec_state
         #############################################
         # END OF YOUR CODE
         #############################################
@@ -200,5 +236,14 @@ class Seq2Seq(nn.Module):
         output, dec_hidden = self.decoder(
             tgt, dec_hidden, encoder_outputs, src_lengths
         )
+        
+        # Print the shape of the decoder output
+        #print(f"Decoder output shape: {output.shape}")  # (batch_size, max_tgt_len, hidden_size)
+        
+        # Pass through the generator
+        #logits = self.generator(output)
+        
+        # Print the shape of the logits produced by the generator
+        #print(f"Generator output shape: {logits.shape}")  # (batch_size, max_tgt_len, tgt_vocab_size)
 
         return self.generator(output), dec_hidden

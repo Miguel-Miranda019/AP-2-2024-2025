@@ -68,7 +68,9 @@ def train(data, model, lr, n_epochs, checkpoint_name, max_len=50):
             src_lengths = src_lengths.to(device)
 
             optimizer.zero_grad()
-            outputs, _ = model(src, src_lengths, tgt)
+            outputs, _ = model(src, src_lengths, tgt[:,:-1])
+            #print(f"outputs.shape: {outputs.shape}")
+            #print(f"tgt[:, 1:].shape: {tgt[:, 1:].shape}")
             loss = criterion(
                 outputs.reshape(-1, outputs.shape[-1]), tgt[:, 1:].reshape(-1)
             )
@@ -230,7 +232,20 @@ def nucleus_sampling(logits, p=0.8):
     # This is equivalent to selecting the tokens with highest probabilities, whose cumulative probability mass equals or exceeds p.
     # 3. Rescale the distribution and sample from the resulting set of tokens.
     # Implementation of the steps as described above:
-
+    probs = torch.softmax(logits, dim=-1)
+    sorted_probs, sorted_indices = torch.sort(probs, descending = True)
+    
+    cumulative_probs = torch.cumsum(sorted_probs, dim=0)
+    
+    cuttof_idx = torch.searchsorted(cumulative_probs,p).item()
+    
+    top_p_probs = sorted_probs[:cuttof_idx + 1]
+    top_p_indices = sorted_indices[:cuttof_idx + 1]
+    
+    top_p_probs /= top_p_probs.sum()
+    next_token_pos = torch.multinomial(top_p_probs, num_samples=1)
+    next_token = top_p_indices[next_token_pos]
+    return next_token.unsqueeze(0)
     raise NotImplementedError("Add your implementation.")
 
 
